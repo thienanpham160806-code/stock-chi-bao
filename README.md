@@ -144,6 +144,35 @@ schtasks /delete /tn "StockAnalyticsPlatform_DailyIngest" /f   # gỡ bỏ
 > (không chạy khi máy tắt/ngủ). Log lỗi (nếu tải thất bại do mạng...)
 > xem trong `data/processed/pipeline_scheduled.log`.
 
+## Deploy thành web thật (Streamlit Community Cloud)
+
+Không cần backend/database riêng — app tự ingest dữ liệu ngay trong tiến
+trình Streamlit khi phát hiện DB rỗng hoặc dữ liệu cũ hơn 1 ngày (xem
+`STALE_AFTER_DAYS` trong `dashboard/app.py`), nên chỉ cần deploy thẳng
+code lên Streamlit Community Cloud (free) là chạy được, không cần commit
+file database (360MB, vượt giới hạn 100MB/file của GitHub) hay dựng
+GitHub Actions/DB cloud riêng.
+
+**Các bước (chỉ bạn làm được vì cần đăng nhập tài khoản GitHub):**
+1. Vào https://share.streamlit.io, đăng nhập bằng tài khoản GitHub
+   (`thienanpham160806-code`).
+2. Bấm **"New app"** → chọn repo `stock-chi-bao`, branch `main`,
+   main file path: `dashboard/app.py`.
+3. Bấm **Deploy**. Lần đầu mở app, nó sẽ tự tải + xử lý dữ liệu từ
+   CafeF (mất khoảng 1–3 phút, có spinner báo trạng thái) — không cần
+   thao tác gì thêm.
+
+**Giới hạn cần biết:**
+- Free tier Streamlit Cloud giới hạn ~1GB RAM/1 CPU — dữ liệu full 3 sàn
+  (~3.3 triệu dòng) có thể hơi nặng. Nếu app bị restart do vượt RAM,
+  giải pháp là giới hạn lịch sử tải về (vd chỉ 2–3 năm gần nhất) — báo
+  lại nếu gặp tình huống này để bổ sung tùy chọn trim dữ liệu.
+- App container có thể "ngủ" sau thời gian không ai truy cập; người mở
+  lại đầu tiên sau đó sẽ phải đợi app thức dậy + tự ingest lại nếu dữ
+  liệu lúc đó đã cũ hơn 1 ngày.
+- Đây là app public (theo free tier của Streamlit Cloud) — dữ liệu hiển
+  thị là dữ liệu công khai từ CafeF nên không phát sinh vấn đề bảo mật.
+
 ## Giới hạn hiện tại / hướng mở rộng
 
 - Chiến lược screener hiện dùng SMA+RSI+Volume (Trend/Momentum/Volume);
