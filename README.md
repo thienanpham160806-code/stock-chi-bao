@@ -39,23 +39,35 @@ screener/
   indicators.py    SMA, RSI (Wilder smoothing), Volume MA — tính riêng
                    theo từng Ticker (groupby), không rò rỉ dữ liệu chéo mã.
   signals.py       Multi-factor Technical Strategy (thuần định lượng,
-                   xem docstring trong file để biết công thức đầy đủ):
-                     - Trend    : SMA20/SMA50 golden/death cross
-                     - Momentum : RSI14 (tránh mua quá mua / bán quá bán)
-                     - Volume   : Volume > VolumeMA20 (xác nhận dòng tiền)
+                   xem docstring trong file để biết công thức đầy đủ).
+                   BUY và SELL đối xứng nhau — cùng cấu trúc AND 3 điều
+                   kiện, chỉ khác chiều:
+                     BUY  : golden cross (Trend) AND RSI14<70 (Momentum,
+                            chưa quá mua) AND Volume>VolumeMA20 (xác nhận
+                            dòng tiền)
+                     SELL : death cross (Trend) AND RSI14>50 (Momentum
+                            đang yếu đi) AND Volume>VolumeMA20
                    screen_universe() trả về đúng bảng:
                      Ticker | Exchange | Close | Signal | Indicator | Signal Date
 
 dashboard/
-  app.py           Streamlit — tab "Market Watch" (Stock Selection +
-                   candlestick/volume/SMA/RSI + Market Information: giá,
-                   %change, volume, max/min, RSI, tín hiệu) và tab
-                   "Stock Screener" (bảng toàn universe, lọc theo
-                   sàn/tín hiệu/mã).
+  app.py           Streamlit — tab "Market Watch" (bộ lọc Sàn/Mã/Khoảng
+                   thời gian ở đầu thân tab, mã mặc định = nhiều phiên
+                   giao dịch nhất chứ không phải theo alphabet; candlestick
+                   + volume tô màu theo tăng/giảm + SMA/RSI, có rangeslider/
+                   crosshair/nút nhảy nhanh 1T-3T-6T-1N-Tất cả để dễ dò giá
+                   theo thời gian; panel Market Information: giá, %change,
+                   volume, max/min, RSI, tín hiệu) và tab "Stock Screener"
+                   (bảng toàn universe, lọc theo sàn/tín hiệu/mã).
+                   Sidebar chỉ còn nút "🔄 Cập nhật dữ liệu mới nhất" dùng
+                   chung cho cả app; app còn tự ingest lại 1 lần/phiên nếu
+                   dữ liệu rỗng/cũ hơn 1 ngày (không cần bấm gì).
 
 run_pipeline.py    Điểm vào duy nhất — chạy toàn bộ luồng Task 4.
+scripts/           run_daily_pipeline.bat — wrapper cho Windows Task
+                   Scheduler (xem mục "Tự động hóa hoàn toàn" bên dưới).
 requirements.txt
-tests/             Unit test cho loader/downloader/signals (pytest).
+tests/             Unit test cho loader/downloader/signals/db (pytest).
 ```
 
 ## Nguồn dữ liệu
@@ -98,6 +110,12 @@ streamlit run dashboard/app.py
 Chạy lại `python run_pipeline.py` bất cứ lúc nào để đồng bộ dữ liệu mới
 nhất — không cần tải/giải nén/copy file hay tính lại chỉ báo thủ công.
 
+> **Không chạy `run_pipeline.py` trước cũng được:** mở thẳng
+> `streamlit run dashboard/app.py` — nếu SQLite rỗng hoặc dữ liệu cũ hơn
+> 1 ngày, dashboard tự ingest lại (1 lần/phiên trình duyệt) trước khi
+> hiển thị, không cần chạm terminal. Xem `STALE_AFTER_DAYS` trong
+> `dashboard/app.py`.
+
 Tuỳ chọn hữu ích:
 ```bash
 python run_pipeline.py --no-download        # chỉ dùng CSV có sẵn trong data/raw (offline/CI)
@@ -131,7 +149,7 @@ scripts/run_daily_pipeline.bat   # wrapper: cd đúng thư mục, gọi python
 ```powershell
 schtasks /create /tn "StockAnalyticsPlatform_DailyIngest" `
   /tr "`"C:\Users\Dell\stock-chi-bao\scripts\run_daily_pipeline.bat`"" `
-  /sc daily /st 18:30 /f
+  /sc daily /st 17:30 /f
 ```
 
 Quản lý:
@@ -152,6 +170,11 @@ trình Streamlit khi phát hiện DB rỗng hoặc dữ liệu cũ hơn 1 ngày 
 code lên Streamlit Community Cloud (free) là chạy được, không cần commit
 file database (360MB, vượt giới hạn 100MB/file của GitHub) hay dựng
 GitHub Actions/DB cloud riêng.
+
+> Đã fix bug thực tế phát hiện lúc deploy thử: `load_prices()` từng crash
+> khi bảng `prices` chưa tồn tại (DB rỗng lần đầu) do không bắt
+> `pandas.errors.DatabaseError` — nay đã xử lý (xem `data_pipeline/db.py`
+> + `tests/test_db.py`), auto-refresh chạy đúng ngay từ lần mở đầu tiên.
 
 **Các bước (chỉ bạn làm được vì cần đăng nhập tài khoản GitHub):**
 1. Vào https://share.streamlit.io, đăng nhập bằng tài khoản GitHub
