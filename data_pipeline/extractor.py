@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -28,6 +29,13 @@ def extract_dataset(zip_path: str | Path, raw_dir: str | Path = RAW_DATA_DIR) ->
 
     Trả về danh sách đường dẫn các file CSV đã được đưa vào raw_dir.
     File CSV trùng tên sẽ bị ghi đè (idempotent khi chạy lại pipeline).
+
+    Dùng tempfile.TemporaryDirectory (thư mục tạm riêng biệt, tên ngẫu
+    nhiên) thay vì 1 đường dẫn cố định — trên môi trường có thể chạy
+    nhiều tiến trình song song (vd nhiều session Streamlit Cloud cùng
+    tự trigger auto-refresh), 1 thư mục tạm dùng chung dễ bị tiến trình
+    này xóa/ghi đè giữa lúc tiến trình khác đang đọc, gây
+    FileNotFoundError giữa chừng.
     """
     zip_path = Path(zip_path)
     raw_dir = Path(raw_dir)
@@ -36,27 +44,23 @@ def extract_dataset(zip_path: str | Path, raw_dir: str | Path = RAW_DATA_DIR) ->
     if not zip_path.exists():
         raise ExtractError(f"File zip không tồn tại: {zip_path}")
 
-    stage_dir = raw_dir.parent / "_extract_tmp" / zip_path.stem
-    if stage_dir.exists():
-        shutil.rmtree(stage_dir)
-    stage_dir.mkdir(parents=True, exist_ok=True)
+    extracted: list[Path] = []
+    with tempfile.TemporaryDirectory(prefix=f"cafef_extract_{zip_path.stem}_") as tmp:
+        stage_dir = Path(tmp)
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(stage_dir)
+        except zipfile.BadZipFile as exc:
+            raise ExtractError(f"File zip lỗi/không đọc được: {zip_path} ({exc})") from exc
 
-    try:
-        with zipfile.ZipFile(zip_path) as zf:
-            zf.extractall(stage_dir)
-    except zipfile.BadZipFile as exc:
-        raise ExtractError(f"File zip lỗi/không đọc được: {zip_path} ({exc})") from exc
+        csv_files = sorted(stage_dir.rglob("*.csv"))
+        if not csv_files:
+            raise ExtractError(f"Không tìm thấy file CSV nào bên trong zip: {zip_path}")
 
-    csv_files = sorted(stage_dir.rglob("*.csv"))
-    if not csv_files:
-        raise ExtractError(f"Không tìm thấy file CSV nào bên trong zip: {zip_path}")
+        for src in csv_files:
+            dest = raw_dir / src.name
+            shutil.copy2(src, dest)
+            extracted.append(dest)
+            logger.info("Đã giải nén %s -> %s", src.name, dest)
 
-    extracted = []
-    for src in csv_files:
-        dest = raw_dir / src.name
-        shutil.copy2(src, dest)
-        extracted.append(dest)
-        logger.info("Đã giải nén %s -> %s", src.name, dest)
-
-    shutil.rmtree(stage_dir, ignore_errors=True)
     return extracted

@@ -88,17 +88,26 @@ def download_dataset(
         return zip_path
 
     logger.info("Đang tải dataset CafeF ngày %s từ %s ...", resolved_date.isoformat(), url)
+    # Tải vào file .part rồi rename sang tên thật khi xong hẳn — tải dở
+    # dang (mạng đứt giữa chừng, tiến trình bị kill...) sẽ không bao giờ
+    # để lại 1 file trùng tên zip_path mà idempotency-check ở trên lầm
+    # tưởng là "đã tải xong đủ".
+    part_path = zip_path.with_suffix(zip_path.suffix + ".part")
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp, open(zip_path, "wb") as out_file:
+        with urllib.request.urlopen(req, timeout=60) as resp, open(part_path, "wb") as out_file:
             while True:
                 chunk = resp.read(1024 * 1024)
                 if not chunk:
                     break
                 out_file.write(chunk)
+        part_path.replace(zip_path)
     except urllib.error.URLError as exc:
-        zip_path.unlink(missing_ok=True)
+        part_path.unlink(missing_ok=True)
         raise DownloadError(f"Tải dữ liệu CafeF thất bại ({url}): {exc}") from exc
+    except BaseException:
+        part_path.unlink(missing_ok=True)
+        raise
 
     logger.info("Tải xong: %s (%.1f MB)", zip_path, zip_path.stat().st_size / 1_048_576)
     return zip_path

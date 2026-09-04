@@ -16,6 +16,10 @@ RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 SQLITE_DB_PATH = PROCESSED_DATA_DIR / "stock.db"
 
+# File lock chặn nhiều tiến trình/session cùng download+extract song song
+# (xem data_pipeline/lock.py).
+INGEST_LOCK_PATH = PROCESSED_DATA_DIR / ".ingest.lock"
+
 # Tên bảng chứa dữ liệu giá đã chuẩn hóa.
 PRICES_TABLE = "prices"
 
