@@ -10,7 +10,7 @@ Chạy: streamlit run dashboard/app.py
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -54,11 +54,16 @@ def render_market_watch(df: pd.DataFrame) -> None:
     ticker_df = df[(df["Exchange"] == exchange) & (df["Ticker"] == ticker)].sort_values("Date")
 
     min_date, max_date = ticker_df["Date"].min().date(), ticker_df["Date"].max().date()
+    # Mặc định chỉ hiện ~6 tháng gần nhất — nhiều mã có lịch sử hàng chục
+    # năm, hiện full ngay từ đầu làm nến bị nén khó đọc. Người dùng vẫn
+    # mở rộng được thoải mái qua ô chọn ngày này.
+    default_start = max(min_date, max_date - timedelta(days=180))
     date_range = st.sidebar.date_input(
         "Khoảng thời gian",
-        value=(min_date, max_date),
+        value=(default_start, max_date),
         min_value=min_date,
         max_value=max_date,
+        help="Mặc định 6 tháng gần nhất để biểu đồ dễ đọc — mở rộng nếu cần xem lịch sử xa hơn.",
     )
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_date, end_date = date_range
@@ -141,7 +146,13 @@ def render_market_watch(df: pd.DataFrame) -> None:
         row=1, col=1,
     )
 
-    fig.add_trace(go.Bar(x=signaled["Date"], y=signaled["Volume"], name="Volume"), row=2, col=1)
+    # Tô màu cột khối lượng theo nến tăng/giảm (cùng tông với candlestick)
+    # để đối chiếu dòng tiền với hướng giá bằng mắt nhanh hơn.
+    volume_colors = ["#26a69a" if c >= o else "#ef5350" for o, c in zip(signaled["Open"], signaled["Close"])]
+    fig.add_trace(
+        go.Bar(x=signaled["Date"], y=signaled["Volume"], name="Volume", marker_color=volume_colors),
+        row=2, col=1,
+    )
 
     fig.add_trace(
         go.Scatter(x=signaled["Date"], y=signaled[f"RSI_{DEFAULT_RSI_WINDOW}"], name="RSI", line=dict(width=1.2)),
@@ -182,6 +193,10 @@ def render_market_watch(df: pd.DataFrame) -> None:
     fig.update_xaxes(rangeslider_visible=True, rangeslider_thickness=0.06, row=3, col=1)
 
     st.plotly_chart(fig, width="stretch")
+    st.caption(
+        "💡 Kéo chuột trên biểu đồ để zoom vào 1 đoạn · double-click để reset · "
+        "kéo thanh xám dưới cùng để lướt ngang trái/phải · dùng nút 1T/3T/6T/1N/Tất cả để nhảy nhanh."
+    )
 
 
 def render_screener(screener_df: pd.DataFrame) -> None:
