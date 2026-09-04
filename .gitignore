@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Dữ liệu: giữ cấu trúc thư mục nhưng không commit CSV/DB/zip thật
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/downloads/*
+!data/downloads/.gitkeep
+data/_extract_tmp/
+
+.streamlit/
+.pytest_cache/
+.ipynb_checkpoints/
+*.egg-info/
