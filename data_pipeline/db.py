@@ -123,7 +123,13 @@ def load_prices(
     exchange: str | None = None,
     ticker: str | None = None,
 ) -> pd.DataFrame:
-    """Đọc dữ liệu giá từ SQLite, có thể lọc theo sàn/mã, dùng cho dashboard/screener."""
+    """Đọc dữ liệu giá từ SQLite, có thể lọc theo sàn/mã, dùng cho dashboard/screener.
+
+    Trả về DataFrame rỗng (không raise) nếu bảng `prices` chưa tồn tại —
+    trường hợp bình thường ở lần chạy đầu tiên (deploy mới/DB trống, chưa
+    ingest lần nào) — để dashboard tự phát hiện và kích hoạt auto-refresh
+    thay vì crash toàn bộ app.
+    """
     conn = get_connection(db_path)
     try:
         query = f"SELECT * FROM {PRICES_TABLE} WHERE 1=1"
@@ -135,7 +141,10 @@ def load_prices(
             query += " AND Ticker = ?"
             params.append(ticker)
         query += " ORDER BY Ticker, Date"
-        df = pd.read_sql_query(query, conn, params=params, parse_dates=["Date"])
-        return df
+        try:
+            return pd.read_sql_query(query, conn, params=params, parse_dates=["Date"])
+        except pd.errors.DatabaseError:
+            logger.warning("Bảng %s chưa tồn tại (chưa ingest lần nào), trả về DataFrame rỗng.", PRICES_TABLE)
+            return pd.DataFrame(columns=["Ticker", "Exchange", "Date", "Open", "High", "Low", "Close", "Volume"])
     finally:
         conn.close()
