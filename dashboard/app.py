@@ -42,14 +42,26 @@ def _load_screener() -> pd.DataFrame:
 
 
 def render_market_watch(df: pd.DataFrame) -> None:
-    """Tab theo dõi giá 1 mã: Stock Selection + Price Visualization + Market Information."""
-    st.sidebar.header("Bộ lọc")
+    """Tab theo dõi giá 1 mã: Stock Selection + Price Visualization + Market Information.
+
+    Bộ lọc Sàn/Mã/Khoảng thời gian đặt ở ĐẦU THÂN TAB này (không phải
+    sidebar) vì chỉ áp dụng cho tab Market Watch — đặt ở sidebar sẽ khiến
+    nó hiện cả khi người dùng đang ở tab Stock Screener (vốn có bộ lọc
+    riêng, không liên quan). Sidebar chỉ còn nút cập nhật dữ liệu dùng
+    chung cho toàn app.
+    """
+    col_exchange, col_ticker, col_date = st.columns([1, 1, 2])
 
     exchanges = sorted(df["Exchange"].unique())
-    exchange = st.sidebar.selectbox("Sàn giao dịch", exchanges)
+    exchange = col_exchange.selectbox("Sàn giao dịch", exchanges)
 
-    tickers = sorted(df.loc[df["Exchange"] == exchange, "Ticker"].unique())
-    ticker = st.sidebar.selectbox("Mã cổ phiếu", tickers)
+    ticker_counts = df.loc[df["Exchange"] == exchange, "Ticker"].value_counts()
+    tickers = sorted(ticker_counts.index)
+    # Mặc định chọn mã có nhiều phiên giao dịch nhất (thanh khoản/dữ liệu
+    # đầy đủ nhất) thay vì mã đầu tiên theo alphabet — tránh rơi vào mã
+    # chỉ có 1-2 dòng dữ liệu, biểu đồ trống trơn ngay lần mở đầu tiên.
+    default_ticker = ticker_counts.idxmax()
+    ticker = col_ticker.selectbox("Mã cổ phiếu", tickers, index=tickers.index(default_ticker))
 
     ticker_df = df[(df["Exchange"] == exchange) & (df["Ticker"] == ticker)].sort_values("Date")
 
@@ -58,7 +70,7 @@ def render_market_watch(df: pd.DataFrame) -> None:
     # năm, hiện full ngay từ đầu làm nến bị nén khó đọc. Người dùng vẫn
     # mở rộng được thoải mái qua ô chọn ngày này.
     default_start = max(min_date, max_date - timedelta(days=180))
-    date_range = st.sidebar.date_input(
+    date_range = col_date.date_input(
         "Khoảng thời gian",
         value=(default_start, max_date),
         min_value=min_date,

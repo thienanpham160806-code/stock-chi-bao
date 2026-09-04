@@ -56,8 +56,10 @@ def test_buy_rows_satisfy_golden_cross_rsi_volume_rule():
         assert row["Volume"] > row[f"VolumeMA_{DEFAULT_VOLUME_MA_WINDOW}"]
 
 
-def test_sell_rows_satisfy_death_cross_or_overbought_rule():
-    df = _make_random_walk_prices("BBB", "HNX", seed=4)
+def test_sell_rows_satisfy_death_cross_and_rsi_and_volume_rule():
+    # SELL đối xứng với BUY: death cross AND RSI>50 (momentum yếu đi) AND
+    # volume xác nhận — cùng cấu trúc AND 3 điều kiện như BUY, không còn OR.
+    df = _make_random_walk_prices("BBB", "HNX", seed=28)
     out = generate_signals(df)
     prev_short = out[f"SMA_{SHORT_WIN}"].shift(1)
     prev_long = out[f"SMA_{LONG_WIN}"].shift(1)
@@ -65,9 +67,10 @@ def test_sell_rows_satisfy_death_cross_or_overbought_rule():
     sell_rows = out[out["Signal"] == "SELL"]
     assert len(sell_rows) > 0, "seed cần tạo ít nhất 1 tín hiệu SELL để test có ý nghĩa"
     for idx, row in sell_rows.iterrows():
-        death_cross = (row[f"SMA_{SHORT_WIN}"] < row[f"SMA_{LONG_WIN}"]) and (prev_short[idx] >= prev_long[idx])
-        overbought = row[f"RSI_{DEFAULT_RSI_WINDOW}"] > 70
-        assert death_cross or overbought
+        assert row[f"SMA_{SHORT_WIN}"] < row[f"SMA_{LONG_WIN}"]
+        assert prev_short[idx] >= prev_long[idx]
+        assert row[f"RSI_{DEFAULT_RSI_WINDOW}"] > 50
+        assert row["Volume"] > row[f"VolumeMA_{DEFAULT_VOLUME_MA_WINDOW}"]
 
 
 def test_screen_universe_output_shape_and_columns():

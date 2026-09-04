@@ -10,20 +10,23 @@ nhau của thị trường:
 - Trend (SMA20 vs SMA50)   : SMA ngắn hạn cắt SMA dài hạn (golden/death
   cross) cho biết xu hướng giá trung hạn đang đảo chiều tăng hay giảm.
 - Momentum (RSI14)         : RSI đo tốc độ & độ lớn biến động giá gần
-  đây, dùng để tránh mua khi đã quá mua (RSI > 70) và tránh bán khi đã
-  quá bán — xác nhận momentum còn ủng hộ hướng giao dịch.
+  đây — BUY đòi RSI chưa quá mua (< 70), SELL đòi RSI đã cắt xuống dưới
+  mốc trung tính 50 (momentum đang yếu đi, ủng hộ chiều giảm).
 - Volume (Volume vs VolumeMA20): Khối lượng giao dịch lớn hơn trung
   bình 20 phiên xác nhận dòng tiền thực sự tham gia vào điểm đảo chiều
   (Market Strength) — loại bỏ tín hiệu chéo SMA "yếu" do thanh khoản thấp.
+  Áp dụng đối xứng cho cả BUY và SELL.
 
-Quy tắc định lượng:
+Quy tắc định lượng (BUY và SELL đối xứng nhau — cùng 3 điều kiện AND,
+chỉ khác chiều):
 
     BUY  :  SMA20_t > SMA50_t  và  SMA20_(t-1) <= SMA50_(t-1)      (golden cross)
         và  RSI14_t < 70                                          (chưa quá mua)
         và  Volume_t > VolumeMA20_t                                (dòng tiền xác nhận)
 
-    SELL :  [ SMA20_t < SMA50_t  và  SMA20_(t-1) >= SMA50_(t-1) ]  (death cross)
-        HOẶC  RSI14_t > 70                                        (quá mua -> chốt lời)
+    SELL :  SMA20_t < SMA50_t  và  SMA20_(t-1) >= SMA50_(t-1)      (death cross)
+        và  RSI14_t > 50                                          (momentum đang yếu đi)
+        và  Volume_t > VolumeMA20_t                                (dòng tiền xác nhận)
 
     HOLD :  các trường hợp còn lại (bao gồm chưa đủ dữ liệu để tính chỉ báo).
 
@@ -43,6 +46,7 @@ from screener.indicators import (
 
 RSI_OVERBOUGHT = 70
 RSI_OVERSOLD = 30
+RSI_NEUTRAL = 50  # mốc trung tính dùng cho điều kiện SELL (momentum đang yếu đi)
 
 # Cột đầu ra chuẩn cho bảng screener toàn universe (đúng theo yêu cầu đề bài:
 # Ticker | Exchange | Close | Signal | Indicator | Signal Date).
@@ -80,12 +84,15 @@ def generate_signals(
 
     has_indicators = sma_short.notna() & sma_long.notna() & rsi.notna() & volume_ma.notna()
 
+    # BUY và SELL đối xứng nhau: cùng 3 điều kiện AND (cross + RSI + volume),
+    # chỉ khác chiều — tránh bất đối xứng logic (BUY chặt bằng AND 3 điều
+    # kiện trong khi SELL trước đây chỉ cần OR 1 trong 2).
     buy = has_indicators & golden_cross & (rsi < RSI_OVERBOUGHT) & (out["Volume"] > volume_ma)
-    sell = has_indicators & (death_cross | (rsi > RSI_OVERBOUGHT))
+    sell = has_indicators & death_cross & (rsi > RSI_NEUTRAL) & (out["Volume"] > volume_ma)
 
     out["Signal"] = "HOLD"
     out.loc[buy, "Signal"] = "BUY"
-    out.loc[sell & ~buy, "Signal"] = "SELL"
+    out.loc[sell, "Signal"] = "SELL"
 
     return out
 
