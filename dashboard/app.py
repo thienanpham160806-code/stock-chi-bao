@@ -22,9 +22,10 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from data_pipeline.config import SQLITE_DB_PATH
-from data_pipeline.db import load_prices, load_screener_results
+from data_pipeline.db import load_prices, load_screener_results, save_screener_results
+from data_pipeline.pipeline import run_ingest
 from screener.indicators import DEFAULT_RSI_WINDOW, DEFAULT_SMA_WINDOWS
-from screener.signals import generate_signals
+from screener.signals import generate_signals, screen_universe
 
 st.set_page_config(page_title="Automated Stock Analytics Platform", layout="wide")
 
@@ -187,16 +188,46 @@ def render_screener(screener_df: pd.DataFrame) -> None:
     st.dataframe(view.sort_values(["Signal", "Ticker"]), width="stretch", height=500)
 
 
+def render_refresh_control() -> None:
+    """Nút cập nhật dữ liệu ngay trong dashboard — bấm 1 nút là tự động
+    Download -> Extract -> Clean -> Store -> Analyze -> Signal -> Screener,
+    không cần rời trình duyệt / mở terminal (Task 4: hạn chế thao tác thủ công)."""
+    with st.sidebar:
+        st.subheader("⚙️ Dữ liệu")
+        if st.button("🔄 Cập nhật dữ liệu mới nhất từ CafeF", width="stretch"):
+            with st.spinner("Đang dò + tải + xử lý dữ liệu mới nhất từ CafeF (có thể mất vài phút)..."):
+                try:
+                    rows = run_ingest()
+                    if rows:
+                        prices = load_prices(SQLITE_DB_PATH)
+                        screener_df = screen_universe(prices)
+                        save_screener_results(screener_df, SQLITE_DB_PATH)
+                    _load_all_prices.clear()
+                    _load_screener.clear()
+                except Exception as exc:  # noqa: BLE001 - hiển thị lỗi cho người dùng thay vì crash app
+                    st.error(f"Cập nhật thất bại: {exc}")
+                else:
+                    if rows:
+                        st.success(f"Đã cập nhật {rows:,} dòng dữ liệu.")
+                    else:
+                        st.warning("Không tải được dữ liệu mới (kiểm tra kết nối mạng).")
+        st.divider()
+
+
 def main() -> None:
     st.title("📈 Automated Stock Analytics Platform")
+
+    render_refresh_control()
 
     df = _load_all_prices()
     if df.empty:
         st.warning(
-            "Chưa có dữ liệu trong SQLite. Hãy chạy `python run_pipeline.py` "
-            "để tự động tải + xử lý dữ liệu từ CafeF trước."
+            "Chưa có dữ liệu trong SQLite. Bấm nút '🔄 Cập nhật dữ liệu mới nhất từ CafeF' "
+            "ở sidebar (hoặc chạy `python run_pipeline.py`) để tự động tải + xử lý dữ liệu."
         )
         return
+
+    st.caption(f"📅 Dữ liệu giá tính đến: **{df['Date'].max().date()}**")
 
     tab_watch, tab_screener = st.tabs(["🕯️ Market Watch", "📋 Stock Screener"])
     with tab_watch:

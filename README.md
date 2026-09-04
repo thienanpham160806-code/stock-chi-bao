@@ -115,6 +115,35 @@ python run_pipeline.py --force-download     # tải lại dù đã có sẵn zip
 pytest tests/ -v
 ```
 
+## Tự động hóa hoàn toàn (Windows Task Scheduler)
+
+Ngoài nút "🔄 Cập nhật dữ liệu mới nhất từ CafeF" trong dashboard, có thể
+lập lịch chạy `run_pipeline.py` tự động hàng ngày để dữ liệu luôn mới mà
+không cần mở dashboard/terminal:
+
+```bash
+scripts/run_daily_pipeline.bat   # wrapper: cd đúng thư mục, gọi python
+                                  # run_pipeline.py, log ra
+                                  # data/processed/pipeline_scheduled.log
+```
+
+Đăng ký task (chạy 1 lần):
+```powershell
+schtasks /create /tn "StockAnalyticsPlatform_DailyIngest" `
+  /tr "`"C:\Users\Dell\stock-chi-bao\scripts\run_daily_pipeline.bat`"" `
+  /sc daily /st 18:30 /f
+```
+
+Quản lý:
+```powershell
+schtasks /query /tn "StockAnalyticsPlatform_DailyIngest" /v    # xem trạng thái
+schtasks /delete /tn "StockAnalyticsPlatform_DailyIngest" /f   # gỡ bỏ
+```
+
+> Task chạy dưới quyền user hiện tại, chỉ chạy khi máy đang đăng nhập
+> (không chạy khi máy tắt/ngủ). Log lỗi (nếu tải thất bại do mạng...)
+> xem trong `data/processed/pipeline_scheduled.log`.
+
 ## Giới hạn hiện tại / hướng mở rộng
 
 - Chiến lược screener hiện dùng SMA+RSI+Volume (Trend/Momentum/Volume);
