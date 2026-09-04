@@ -10,6 +10,7 @@ Chạy: streamlit run dashboard/app.py
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -149,7 +150,37 @@ def render_market_watch(df: pd.DataFrame) -> None:
     fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1)
     fig.add_hline(y=30, line_dash="dot", line_color="green", row=3, col=1)
 
-    fig.update_layout(height=800, xaxis_rangeslider_visible=False, legend=dict(orientation="h"))
+    fig.update_layout(
+        height=900,
+        legend=dict(orientation="h"),
+        hovermode="x unified",  # gộp tooltip 3 subplot theo cùng 1 mốc ngày -> dò giá/volume/RSI cùng lúc dễ hơn
+        margin=dict(t=60, b=10),
+    )
+
+    # Crosshair dọc xuyên suốt cả 3 subplot khi rê chuột, giúp bắt mốc thời gian chính xác.
+    fig.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor", spikethickness=1, spikedash="dot")
+
+    # Nút bấm nhảy nhanh theo khung thời gian (1 tháng/3 tháng/6 tháng/1 năm/Tất cả).
+    fig.update_xaxes(
+        rangeselector=dict(
+            buttons=[
+                dict(count=1, label="1T", step="month", stepmode="backward"),
+                dict(count=3, label="3T", step="month", stepmode="backward"),
+                dict(count=6, label="6T", step="month", stepmode="backward"),
+                dict(count=1, label="1N", step="year", stepmode="backward"),
+                dict(step="all", label="Tất cả"),
+            ]
+        ),
+        row=1, col=1,
+    )
+
+    # Thanh cuộn ngang bên dưới cùng để kéo lướt trái/phải và zoom in/out
+    # (kéo 2 đầu = zoom, kéo giữa = lướt) — vì 3 subplot share x-axis nên chỉ
+    # cần đặt ở subplot cuối, áp dụng chung cho cả candlestick + volume + RSI.
+    fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
+    fig.update_xaxes(rangeslider_visible=False, row=2, col=1)
+    fig.update_xaxes(rangeslider_visible=True, rangeslider_thickness=0.06, row=3, col=1)
+
     st.plotly_chart(fig, width="stretch")
 
 
@@ -188,22 +219,37 @@ def render_screener(screener_df: pd.DataFrame) -> None:
     st.dataframe(view.sort_values(["Signal", "Ticker"]), width="stretch", height=500)
 
 
-def render_refresh_control() -> None:
-    """Nút cập nhật dữ liệu ngay trong dashboard — bấm 1 nút là tự động
-    Download -> Extract -> Clean -> Store -> Analyze -> Signal -> Screener,
-    không cần rời trình duyệt / mở terminal (Task 4: hạn chế thao tác thủ công)."""
+# Nếu dữ liệu cũ hơn số ngày này (hoặc chưa có gì), app tự ingest lại 1 lần
+# khi có người mở lên — bù cho môi trường deploy không có Windows Task
+# Scheduler (vd Streamlit Community Cloud), vẫn tự cập nhật mà không cần ai
+# bấm nút hay chạy lệnh gì.
+STALE_AFTER_DAYS = 1
+
+
+def _run_full_refresh() -> int:
+    """Chạy trọn Download -> Extract -> Clean -> Store -> Analyze -> Signal
+    -> Screener rồi xóa cache Streamlit để lần đọc kế tiếp thấy dữ liệu mới."""
+    rows = run_ingest()
+    if rows:
+        prices = load_prices(SQLITE_DB_PATH)
+        screener_df = screen_universe(prices)
+        save_screener_results(screener_df, SQLITE_DB_PATH)
+    _load_all_prices.clear()
+    _load_screener.clear()
+    return rows
+
+
+def render_refresh_control(auto_status: str | None = None) -> None:
+    """Nút cập nhật dữ liệu thủ công (bổ sung cho auto-refresh) — bấm 1 nút
+    là tự động chạy lại toàn bộ pipeline, không cần rời trình duyệt."""
     with st.sidebar:
         st.subheader("⚙️ Dữ liệu")
+        if auto_status:
+            st.caption(auto_status)
         if st.button("🔄 Cập nhật dữ liệu mới nhất từ CafeF", width="stretch"):
             with st.spinner("Đang dò + tải + xử lý dữ liệu mới nhất từ CafeF (có thể mất vài phút)..."):
                 try:
-                    rows = run_ingest()
-                    if rows:
-                        prices = load_prices(SQLITE_DB_PATH)
-                        screener_df = screen_universe(prices)
-                        save_screener_results(screener_df, SQLITE_DB_PATH)
-                    _load_all_prices.clear()
-                    _load_screener.clear()
+                    rows = _run_full_refresh()
                 except Exception as exc:  # noqa: BLE001 - hiển thị lỗi cho người dùng thay vì crash app
                     st.error(f"Cập nhật thất bại: {exc}")
                 else:
@@ -217,9 +263,27 @@ def render_refresh_control() -> None:
 def main() -> None:
     st.title("📈 Automated Stock Analytics Platform")
 
-    render_refresh_control()
-
     df = _load_all_prices()
+
+    # Auto-refresh 1 lần/phiên nếu chưa có dữ liệu hoặc dữ liệu đã cũ — nhờ
+    # session_state nên không gọi lại CafeF mỗi lần người dùng tương tác UI.
+    is_stale = df.empty or (date.today() - df["Date"].max().date()).days > STALE_AFTER_DAYS
+    auto_status = None
+    if is_stale and not st.session_state.get("auto_refreshed"):
+        st.session_state["auto_refreshed"] = True
+        with st.spinner("Đang tự động tải dữ liệu mới nhất từ CafeF (lần đầu/khi dữ liệu cũ, có thể mất vài phút)..."):
+            try:
+                _run_full_refresh()
+                df = _load_all_prices()
+                auto_status = (
+                    f"✅ Tự động cập nhật xong — tính đến {df['Date'].max().date()}" if not df.empty
+                    else "⚠️ Tự động cập nhật xong nhưng vẫn chưa có dữ liệu."
+                )
+            except Exception as exc:  # noqa: BLE001
+                auto_status = f"⚠️ Tự động cập nhật thất bại: {exc}"
+
+    render_refresh_control(auto_status)
+
     if df.empty:
         st.warning(
             "Chưa có dữ liệu trong SQLite. Bấm nút '🔄 Cập nhật dữ liệu mới nhất từ CafeF' "
